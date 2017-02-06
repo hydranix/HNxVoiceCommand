@@ -1,3 +1,5 @@
+
+
 # HNxVoiceCommand
 My voice command utility for Windows
 
@@ -14,9 +16,14 @@ You'll be greeted by a boring dialog with some buttons.
 When you add a command a "phrase" is any word, or combination of words, that you will say to trigger an action.
 Phrases can be any reasonable length.
 
-Upon detection of the phrase, the program will attempt to execute whatever you set for the [program] and with the [arguments] you set, if any.
+First you say a "hotword" similar to 'OK-Google', at this time the default is 'computer'. When it detects the hotword, it will then begin listening for commands. If no commonds are deected within 5 seconds, it goes back to only listening for the hotword.
 
-Intenally, it just passes the strings off to ShellExecute(), so make sure you understand what can and can't be done with ShellExecute(), and how you can extend the functionality of the commands with the registry.
+Upon detection of the command, the program will attempt to execute whatever you set for the [program] and with the [arguments] you set, if any.
+
+Intenrally, it just passes the strings off to ShellExecute(), so make sure you understand what can and can't be done with ShellExecute(), and how you can extend the functionality of the commands with the registry.
 https://msdn.microsoft.com/en-us/library/windows/desktop/bb776886.aspx
 
 Finally, all commands are saved on exit and reloaded upon launch.
+
+-Feb 2017-
+I'm working on an overhaul of this project and will update both the code and this poorly written readme when finished
