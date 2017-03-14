@@ -1,4 +1,4 @@
-
+a
 
 # HNxVoiceCommand
 My voice command utility for Windows
@@ -16,7 +16,7 @@ You'll be greeted by a boring dialog with some buttons.
 When you add a command a "phrase" is any word, or combination of words, that you will say to trigger an action.
 Phrases can be any reasonable length.
 
-First you say a "hotword" similar to 'OK-Google', at this time the default is 'computer'. When it detects the hotword, it will then begin listening for commands. If no commonds are deected within 5 seconds, it goes back to only listening for the hotword.
+First you say a "hotword" similar to 'OK-Google', at this time the default is 'computer'. When it detects the hotword, it will then begin listening for commands. If no commands are deected within 5 seconds, it goes back to listening for the hotword.
 
 Upon detection of the command, the program will attempt to execute whatever you set for the [program] and with the [arguments] you set, if any.
 
