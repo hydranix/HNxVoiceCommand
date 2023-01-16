@@ -1,584 +1,475 @@
 #pragma once
-//'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
-// SAPI 5.4 Recognition Class
-//    by Hydranix (c) 2016
+//'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+//    Copyright Hydranix (C) 2016-2023
 //
-// This class fully wraps basic speech recognition
-//  based on Microsoft's SAPI 5.4 into a voice
-//  command application
-//
-// Currently this class creates an InProc Recognizer that
-//  waits for a "hotword" (default: "computer") to be spoken.
-//  It then waits for a command. Commands are added via
-//  Recog::AddString() and related. Each command string has
-//  a coresponding commandline which is passed to ShellExecute()
-//  when the command is detected.
-//.............................................................
+// This class provides basic speech recognition
+//  using Microsoft's SAPI 5.4
+//  
+//        
+// 
+//...................................................................
+/////////////////////////////////////////////////////////////////////
+//  How to use:
+// 
+//  1
+//  Initialize the recognition index by calling
+//   initialize(),
+// 2
+//  Activate the recognition by calling start()
+// 3
+//  Speak either the hotword to activate your
+//   custom commands or speak one of the 
+//   built-in commands.
+// (built-in commands only active when listening
+//   for the hotwrd)
+// 
+/////////////////////////////////////////////////////////////////////
+//        Built-in Commands
+// 
+// Command:
+//    "Shutdown Speech Recognition"
+// 
+// Action:
+//   Immediately stops the recognition
+//     and exits the process
+// 
+/////////////////////////////////////////////////////////////////////
+#include "Command.h"
+#include "CommandGroup.h"
+#include "Util.h"
 
-//#include "Command.hpp"
 #include <windows.h>
 #include <sapi.h>
-// sphelper.h is harmlessly broken
+
+#include <combaseapi.h>
+
+// sphelper.h is  broken
 //  so we ignore this error
 #pragma warning (disable:4996)
 #include <sphelper.h>
 
 #include <string>
+#include <string_view>
+#include <sstream>
+
 #include <stdexcept>
-#include <map>
+
 #include <vector>
+
 #include <thread>
 #include <mutex>
 #include <condition_variable>
+
 #include <chrono>
 using namespace std::literals::chrono_literals;
+
+
 
 #ifdef DEBUG
 #include <iostream>
 #define DOUT(x) do { std::cerr << x << std::endl; } while(0)
+//#define WDOUT(x) do { std::wcerr << x << std::endl; } while(0)
 #else
 #define DOUT(x)
+//#define WDOUT(x)
 #endif
-// This makes language=409 actually mean something...
-//  probably not the best idea though
-#define ENGLISH L"language=409"
 
-namespace
+namespace HNx
 {
-  inline void COM(HRESULT hr)
-  {
-    if (hr >= static_cast<HRESULT>(0L)) // S_OK
-      return;
-    else
-    {
-      std::string msg("COM error.\nHRESULT code: " + std::to_string(hr));
-      throw std::runtime_error(msg.c_str());
-    }
-  }
 
-  inline std::string ws2s(const std::wstring & wstr)
-  {
-    std::string str;
-    str.resize(static_cast<size_t>(WideCharToMultiByte(CP_ACP, 0ul, wstr.c_str(), static_cast<int>(wstr.size()), nullptr, 0, nullptr, nullptr)));
-    WideCharToMultiByte(CP_ACP, 0ul, wstr.c_str(), static_cast<int>(wstr.size()), &str[0], static_cast<int>(str.size()), nullptr, nullptr);
-    return str;
-  }
-}
-
-class Command
+inline
+void
+ErrMsg(std::wstring_view msg = L"Unknown Error")
 {
-public:
-  Command()
-    : _exec(std::string())
-    , _param(std::string())
-  {}
-
-  Command(const Command & c)
-    : _exec(c._exec)
-    , _param(c._param)
-  {}
-
-  Command(const std::string & prog,
-          const std::string & param)
-    : _exec(prog)
-    , _param(param)
-  {}
-
-  Command(const std::string & cmdline)
-    : _exec(std::string())
-    , _param(std::string())
-  {
-    bool quoted = false;
-    bool firstchar = false;
-    size_t pos = 0;
-    auto b = cmdline.begin();
-    for (; b != cmdline.end(); ++b, ++pos)
-    {
-      if (!firstchar)
-      {
-        if (*b == ' ')
-          continue;
-        else
-          firstchar = true;
-      }
-      if (*b == '"')
-        quoted = !quoted;
-      if (!quoted)
-        if (*b == ' ')
-          break;
-      _exec.push_back(*b);
-    }
-    _param = cmdline.substr(pos);
-  }
-
-  std::string exec() const
-  {
-    return _exec;
-  }
-  std::string exec()
-  {
-    return _exec;
-  }
-  const std::string exec() const
-  {
-    return _exec;
-  }
-  const std::string exec()
-  {
-    return _exec;
-  }
-
-  std::string param() const
-  {
-    return _param;
-  }
-  std::string param()
-  {
-    return _param;
-  }
-  const std::string param() const
-  {
-    return _param;
-  }
-  const std::string param()
-  {
-    return _param;
-  }
-
-  std::string cmdline() const
-  {
-    std::string _cmdline;
-    if(!_exec.empty())
-    {
-      _cmdline = _exec;
-      if(!_param.empty())
-      {
-        _cmdline.push_back(' ');
-        _cmdline += _param;
-      }
-    }
-    return _cmdline;
-  }
-
-  Command & operator=(const Command & c)
-  {
-    _exec = c._exec;
-    _param = c._param;
-    return *this;
-  }
-
-  friend bool operator==(const Command & a, const Command & b)
-  {
-    return ((a.exec() == b.exec())&&(a.param() == b.param()));
-  }
-
-  friend bool operator!=(const Command & a, const Command & b)
-  {
-    return ((a.exec() != b.exec())&&(a.param() != b.param()));
-  }
-
-private:
-  std::string _exec;
-  std::string _param;
+  MessageBoxW(nullptr, L"HNx Voice Command Error", std::wstring(msg).c_str(), MB_OK);
 };
 
+constexpr auto ENGLISH_LANG_ID {L"language=409"};
 
-enum RecogMode
+constexpr unsigned long long HotwordGramID {1ull};
+constexpr unsigned long long BuiltInGramID {2ull};
+constexpr unsigned long long CommandsGramID {3ull};
+
+enum class RecoState
 {
-  NotListening,
-  ListeningForHotword,
-  ListeningForCommand
+  Unknown,    // Uninitialized
+  Inactive,   // Not listening for the hotword
+  Active,     // Listening for the hotword
+  Listening,  // Hotword detected, listening for command
+  Paused,     // Temporary pause
 };
 
 class Recog
 {
-public:
-  Recog(const std::string _hotword = "computer")
-    : pause_count(0)
-    , spRecogognizer(nullptr)
-    , cpRecognizerToken(nullptr)
-    , sprContext(nullptr)
-    , spAudioInToken(nullptr)
-    , sprGrammar(nullptr)
-    , hotword(_hotword)
-    , initialized(false)
-    , thread_continue(false)
-    , thread_finished(false)
-    , ListeningMode(NotListening)
-  {
-    ::COM(CoInitialize(nullptr));
-    ::COM(CoCreateInstance(CLSID_SpInprocRecognizer,
-                           nullptr,
-                           CLSCTX_ALL,
-                           IID_ISpRecognizer,
-                           reinterpret_cast<void**>(&spRecogognizer)));
-    ::COM(CoCreateInstance(CLSID_SpObjectToken,
-                           nullptr,
-                           CLSCTX_ALL,
-                           IID_ISpObjectTokenInit,
-                           reinterpret_cast<void**>(&spAudioInToken)));
-    ::COM(SpGetDefaultTokenFromCategoryId(SPCAT_AUDIOIN, &spAudioInToken));
-    ::COM(spRecogognizer->SetInput(spAudioInToken, TRUE));
-    ::COM(SpFindBestToken(SPCAT_RECOGNIZERS, ENGLISH, NULL, &cpRecognizerToken));
-    ::COM(spRecogognizer->SetRecognizer(cpRecognizerToken));
-    ::COM(spRecogognizer->CreateRecoContext(&sprContext));
-    ::COM(sprContext->Pause(0ul));
-    ++pause_count;
-    ::COM(sprContext->CreateGrammar(0ull, &sprGrammar));
-    ::COM(sprGrammar->ResetGrammar(MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US)));
-    SPSTATEHANDLE spsh = { 0 };
-    ::COM(sprGrammar->GetRule(L"HotWord", 0ul, SPRAF_TopLevel | SPRAF_Active, true, &spsh));
-    std::wstring whotword(hotword.begin(), hotword.end());
-    ::COM(sprGrammar->AddWordTransition(spsh, nullptr, whotword.c_str(), nullptr, SPWT_LEXICAL, 1, nullptr));
-    ::COM(sprGrammar->Commit(0ul));
-    ::COM(sprContext->SetInterest(SPFEI(SPEI_RECOGNITION), SPFEI(SPEI_RECOGNITION)));
-    ::COM(sprGrammar->SetRuleState(L"HotWord", nullptr, SPRS_ACTIVE));
-    ::COM(sprGrammar->GetRule(L"Commands", 1ul, SPRAF_TopLevel | SPRAF_Active, true, &spsh));
-    ::COM(sprGrammar->AddWordTransition(spsh, nullptr, L"Shutdown Speech Recognition", nullptr, SPWT_LEXICAL, 1, nullptr));
-    ::COM(sprGrammar->Commit(0ul));
-    ::COM(sprContext->SetInterest(SPFEI(SPEI_RECOGNITION), SPFEI(SPEI_RECOGNITION)));
-    ::COM(sprGrammar->SetRuleState(L"Commands", nullptr, SPRS_INACTIVE));
-  }
+public: // Functions
+
+  //========================================//
+  //   Constructor                          //
+  //========================================//
+  //  t_hotword [optional]                  //
+  // this is the activation command         //
+  //========================================//
+  Recog(const std::wstring t_hotword = L"computer")
+    : hotword(t_hotword)
+  {}
 
   ~Recog()
   {
-    thread_continue = false;
-    int x = 0;
-    while(!thread_finished)
-    {
-      if(x>3)
-      {
-        break;
-      }
-      ++x;
-      std::this_thread::sleep_for(1s);
-    }
-    if (sprGrammar)
-    {
-      sprGrammar->ResetGrammar(MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US));
-      sprGrammar->Release();
-      sprGrammar = nullptr;
-    }
-    if (sprContext)sprContext->Release();
-    sprContext = nullptr;
-    if (spAudioInToken)spAudioInToken->Release();
-    spAudioInToken = nullptr;
-    if (cpRecognizerToken)cpRecognizerToken->Release();
-    cpRecognizerToken = nullptr;
-    if (spRecogognizer)spRecogognizer->Release();
-    spRecogognizer = nullptr;
     CoUninitialize();
   }
 
+  // sets up the recognizer
+  bool initialize()
+  {
+
+    HRESULT hr = CoInitialize(nullptr);
+    if(FAILED(hr))
+    {
+      ErrMsg(L"Failed to intialize COM...\n Error: " + std::to_wstring(hr));
+      return false;
+    }
+
+    // this is our reco interface
+    hr = spRecogognizer.CoCreateInstance(IID_ISpRecognizer,
+                                         nullptr,
+                                         CLSCTX_ALL);
+    if(FAILED(hr))
+    {
+      ErrMsg(L"Failed to create InProc Recognizer instance\n Error: " + std::to_wstring(hr));
+      return false;
+    }
+
+    // this is the interface we use to select input device
+    hr = spAudioInToken.CoCreateInstance(IID_ISpObjectTokenInit,
+                                         nullptr,
+                                         CLSCTX_ALL);
+    if(FAILED(hr))
+    {
+      ErrMsg(L"Failed creating object token.\nError: " + std::to_wstring(hr));
+      return false;
+    }
+
+    // we just want the default input device
+    hr = SpGetDefaultTokenFromCategoryId(SPCAT_AUDIOIN, &spAudioInToken);
+    if(FAILED(hr))
+    {
+      ErrMsg(L"Failed to get default audio input token.\nError: " + std::to_wstring(hr));
+      return false;
+    }
+
+    // tell recognizer to use the input device
+    hr = spRecogognizer->SetInput(spAudioInToken, TRUE);
+    if(FAILED(hr))
+    {
+      ErrMsg(L"Failed setting recognizer audio input token.\nError: " + std::to_wstring(hr));
+      return false;
+    }
+
+    // shortcut to get the english recognizer token
+    hr = SpFindBestToken(SPCAT_RECOGNIZERS, ENGLISH_LANG_ID, NULL, &cpRecognizerToken);
+    if(FAILED(hr))
+    {
+      ErrMsg(L"Failed finding best recognizer token.\nError: " + std::to_wstring(hr));
+      return false;
+    }
+
+    // start  
+    hr = spRecogognizer->SetRecognizer(cpRecognizerToken);
+    if(FAILED(hr))
+    {
+      ErrMsg(L"Failed setting recognizer by token.\nError: " + std::to_wstring(hr));
+      return false;
+    }
+
+    // create our context for our grammer
+    hr = spRecogognizer->CreateRecoContext(&sprContext);
+    if(FAILED(hr))
+    {
+      ErrMsg(L"Failed creating recognizer context.\nError: " + std::to_wstring(hr));
+      return false;
+    }
+
+    hr = sprContext->Pause(0ul);
+    if(FAILED(hr))
+    {
+      ErrMsg(L"Failed pausing the context... \nError: " + std::to_wstring(hr));
+      return false;
+    }
+
+    //========================================================================
+    upHotwordGrp = std::make_unique<CommandGroup>(new CommandGroup(sprContext.p, L"Hotword", HotwordGramID));
+    upHotwordGrp->deactivate();
+    upBuiltInGrp = std::make_unique<CommandGroup>(new CommandGroup(sprContext.p, L"BuiltIn", BuiltInGramID));
+    upBuiltInGrp->deactivate();
+    upUserCmdGrp = std::make_unique<CommandGroup>(new CommandGroup(sprContext.p, L"Commands", CommandsGramID));
+    upUserCmdGrp->deactivate();
+    //========================================================================
+
+    Command hotwordCmd(hotword, L"**Hotword**");
+    upHotwordGrp->addCommand(hotwordCmd);
+
+    Command builtIn_ExitProgram(L"Shutdown Speech Recognition", L"**BuiltIn**");
+    upBuiltInGrp->addCommand(builtIn_ExitProgram);
+
+    hr = sprContext->SetInterest(SPFEI(SPEI_RECOGNITION), SPFEI(SPEI_RECOGNITION));
+
+    initialized = true;
+    return true;
+  }
+
+
   // pauses events queue processing but continues to listen and queue events
   // if still_listen is false, will not queue events
-  void pause()
+  // returns pause depth
+  unsigned
+    pause()
   {
-    if (!initialized)
-      initialize();
-    ++pause_count;
-    ::COM(sprContext->Pause(0ul));
-  }
+    pauseCounter++;
 
-  void resume()
-  {
-    if (!initialized)
-      initialize();
-    if (pause_count)
+    HRESULT hr = sprContext->Pause(0);
+    if(FAILED(hr))
+      throw std::runtime_error("Failed to pause context.\nError: " + std::to_string(hr));
+
+    if(currentState != RecoState::Paused)
     {
-      --pause_count;
-      ::COM(sprContext->Resume(0ul));
+      lastState = currentState;
     }
+    currentState = RecoState::Paused;
+
+    return pauseCounter.load();
   }
 
-  void stop_listening()
+  unsigned
+    resume()
   {
-    if (!initialized)
-      initialize();
-    SPRECOSTATE state;
-    ::COM(spRecogognizer->GetRecoState(&state));
-    if (state == SPRST_ACTIVE)
-      ::COM(spRecogognizer->SetRecoState(SPRST_INACTIVE));
-    DOUT("Not listening...");
-  }
+    if(pauseCounter.load() > 0)
+      pauseCounter--;
 
-  void start_listening()
-  {
-    if (!initialized)
-      initialize();
-    SPRECOSTATE state;
-    ::COM(spRecogognizer->GetRecoState(&state));
-    if (state == SPRST_INACTIVE)
-      ::COM(spRecogognizer->SetRecoState(SPRST_ACTIVE));
-    DOUT("Listening...");
-  }
-
-  void AddString(const std::string & str,
-                 const std::string & cmdline)
-  {
-    if (!initialized)
-      initialize();
-    if (str.empty() || cmdline.empty())
-      return;
-    SPSTATEHANDLE spsh = { 0 };
-    ::COM(sprGrammar->GetRule(L"Commands", 1ul, SPRAF_TopLevel | SPRAF_Active, true, &spsh));
-    std::wstring wstr(str.begin(), str.end());
-    ::COM(sprGrammar->AddWordTransition(spsh, nullptr, wstr.c_str(), nullptr, SPWT_LEXICAL, 1, nullptr));
-    ::COM(sprGrammar->Commit(0ul));
-    ::COM(sprContext->SetInterest(SPFEI(SPEI_RECOGNITION), SPFEI(SPEI_RECOGNITION)));
-    ::COM(sprGrammar->SetRuleState(L"Commands", nullptr, SPRS_INACTIVE));
-    Command cmd(cmdline);
-    mCmd[str] = cmd;
-    DOUT("Added phrase: " << str);
-  }
-
-  void AddString(const std::string & str,
-                 const std::string & prog,
-                 const std::string & param)
-  {
-    if(!prog.empty() && !str.empty())
+    if(pauseCounter.load() == 0)
     {
-      std::string cmdline = prog;
+
+
+      HRESULT hr = sprContext->Resume(0ul);
+      if(FAILED(hr))
+        throw std::runtime_error("Failed to resume paused context.\nError: " + std::to_string(hr));
+
+      if(lastState != RecoState::Paused)
+      {
+        currentState = lastState;
+        lastState = RecoState::Paused;
+      }
+    }
+    return pauseCounter.load();
+  }
+
+  void
+    deactivateRecognition()
+  {
+    SPRECOSTATE state;
+    HRESULT hr = spRecogognizer->GetRecoState(&state);
+
+    if(SUCCEEDED(hr))
+      if(state == SPRST_ACTIVE)
+      {
+        upHotwordGrp->deactivate();
+        upBuiltInGrp->deactivate();
+        upUserCmdGrp->deactivate();
+        currentState = RecoState::Inactive;
+        hr = spRecogognizer->SetRecoState(SPRST_INACTIVE);
+      }
+
+    if(FAILED(hr))
+      throw std::runtime_error("deactivateRecognition() failed...\nError: " + std::to_string(hr));
+  }
+
+  void
+    activateRecognition()
+  {
+    SPRECOSTATE state;
+    HRESULT hr = spRecogognizer->GetRecoState(&state);
+
+    if(SUCCEEDED(hr))
+      if(state == SPRST_INACTIVE)
+      {
+        upHotwordGrp->activate();
+        upBuiltInGrp->activate();
+        upUserCmdGrp->deactivate();
+        sprContext->Resume(0);
+        currentState = RecoState::Active;
+        hr = spRecogognizer->SetRecoState(SPRST_ACTIVE);
+      }
+
+    if(FAILED(hr))
+      throw std::runtime_error("activateRecognition() failed...\nError: " + std::to_string(hr));
+  }
+
+  void
+    addCommand(std::wstring_view t_phrase,
+               std::wstring_view t_exe,
+               std::wstring_view t_args = L"")
+  {
+    if(t_phrase.empty() || t_exe.empty())
+      return;
+
+    upUserCmdGrp->addCommand(Command {t_phrase, t_exe, t_args});
+  }
+
+
+  void
+    removeCommandByPhrase(std::wstring_view t_phrase)
+  {
+    upUserCmdGrp->removeCommand(t_phrase);
+  }
+
+
+private: // Functions
+
+  bool execCommand(Command const& cmd)
+  {
+    SHELLEXECUTEINFOW shex = {0};
+    shex.cbSize = sizeof(SHELLEXECUTEINFOW);
+    shex.nShow = SW_SHOW;
+    std::wstring exec = cmd.exec();
+    if(!exec.empty())
+    {
+      shex.lpFile = exec.c_str();
+      std::wstring param = cmd.param();
       if(!param.empty())
       {
-        cmdline.push_back(' ');
-        cmdline += param;
-      }
-      AddString(str, cmdline);
-    }
-  }
-
-  // Gets all strings currently in the mCmd map
-  // even indexes are the keys
-  // even indexes + 1 are the values
-  // [0] = first key; [1] = first value
-  std::vector<std::string> GetStrings()
-  {
-    std::vector<std::string> vStrs;
-    for(auto b = mCmd.begin();b!=mCmd.end();++b)
-    {
-      vStrs.push_back(b->first);
-      vStrs.push_back(b->second.cmdline());
-    }
-    DOUT("All phrases returned");
-    return vStrs;
-  }
-
-  void initialize()
-  {
-    if (!initialized)
-    {
-      thread_continue = true;
-      std::thread thr(&Recog::EventThread, this);
-      thr.detach();
-      initialized = true;
-      resume();
-      DOUT("initialied");
-    }
-  }
-
-  void AddStrings(const std::vector<std::string> & vCmds)
-  {
-    if(vCmds.size() % 2)
-    {
-      throw std::runtime_error("vector has odd number of members");
-    }
-    int i=0;
-    for(auto b = vCmds.begin(); b != vCmds.end();++i)
-    {
-      AddString(*b++, *b++);
-    }
-    DOUT("Added " << i/2 << " phrases");
-  }
-
-  void remove_by_phrase(const std::string & phrase)
-  {
-    for(auto b = mCmd.begin(); b != mCmd.end(); ++b)
-    {
-      if(b->first == phrase)
-      {
-        DOUT("Removing by phrase: " << b->first);
-        mCmd.erase(b);
-        refresh_rules();
-        return;
-      }
-    }
-  }
-
-  void remove_by_command(const std::string & cmdline)
-  {
-    Command cmd(cmdline);
-    for(auto b = mCmd.begin(); b != mCmd.end(); ++b)
-    {
-      if(b->second == cmd)
-      {
-        DOUT("Removing by cmdline: " << b->second.cmdline());
-        mCmd.erase(b);
-        refresh_rules();
-        return;
-      }
-    }
-  }
-
-  void wait_for_exit()
-  {
-    if (!initialized)
-      initialize();
-    std::unique_lock<std::mutex> lck(exit_wait_mtx);
-    DOUT("Thread is waiting for exit...");
-    while (thread_continue)
-    {
-      if (exit_wait_cv.wait_for(lck, 1s) == std::cv_status::no_timeout)
-        thread_continue = false;
-    }
-  }
-
-private:
-  int pause_count;
-
-  std::map<std::string, Command> mCmd;
-
-  ISpRecognizer* spRecogognizer;
-  ISpObjectToken* cpRecognizerToken;
-  ISpRecoContext* sprContext;
-  ISpObjectToken* spAudioInToken;
-  ISpRecoGrammar* sprGrammar;
-
-  // word that activates listening for commands
-  std::string hotword;
-
-  bool initialized;
-  bool thread_continue;
-  bool thread_finished;
-
-  RecogMode ListeningMode;
-
-  std::mutex exit_wait_mtx;
-  std::condition_variable exit_wait_cv;
-
-  void ExecCommand(const Command & cmd)
-  {
-    DOUT("ExecCommand thread started");
-    SHELLEXECUTEINFOA shex = { 0 };
-    shex.cbSize = sizeof(SHELLEXECUTEINFOA);
-    shex.nShow = SW_SHOW;
-    std::string exec = cmd.exec();
-    if (!exec.empty())
-    {
-      DOUT("Exec: " << exec);
-      shex.lpFile = exec.c_str();
-      std::string param = cmd.param();
-      if (!param.empty())
-      {
-        DOUT("Param: " << param);
         shex.lpParameters = param.c_str();
       }
-      shex.lpVerb = "open";
-      if (ShellExecuteExA(&shex) == FALSE)
-      {
-        DOUT("ShellExecuteExA failed...");
-      }
-      else
-      {
-        DOUT("ShellExecuteExA worked...");
-      }
+      shex.lpVerb = L"open";
+      return (ShellExecuteExW(&shex) == FALSE);
     }
+    return false;
   }
 
-  void EventThread()
+  void eventLoop()
   {
-    DOUT("Event thread started...");
-    ::COM(sprContext->SetNotifyWin32Event());
-    HANDLE hEvent = nullptr;
+
+    HRESULT hr = sprContext->SetNotifyWin32Event();
+    HANDLE hEvent = INVALID_HANDLE_VALUE;
+
     hEvent = sprContext->GetNotifyEventHandle();
-    if (hEvent == INVALID_HANDLE_VALUE)
-      throw std::runtime_error("iSPRecoContext::GetNotifyEventHandle returned invalid handle");
-    SPEVENT spEvent = { 0 };
+    if(hEvent == INVALID_HANDLE_VALUE)
+      throw std::runtime_error("iSPRecoContext::GetNotifyEventHandle returned invalid handle.\nError: " + std::to_string(hr));
+
+    SPEVENT spEvent = {0};
     ISpRecoResult* sprResult = nullptr;
-    int waiting_seconds = 0;
-    while (thread_continue)
+
+    activateRecognition();
+    thread_continue = true;
+    currentState = RecoState::Active;
+
+    auto hotword_detect_time = std::chrono::system_clock::now();
+
+    while(thread_continue)
     {
-      if (WaitForMultipleObjects(1ul, &hEvent, FALSE, 1000) == WAIT_TIMEOUT)
+      if(currentState == RecoState::Paused ||
+         currentState == RecoState::Inactive)
       {
+
+      }
+
+      if(WaitForMultipleObjects(1ul, &hEvent, FALSE, 1000) == WAIT_TIMEOUT)
+      {
+        // check for exit signal
         if(!thread_continue)
         {
           break;
         }
-        if (ListeningMode == ListeningForCommand)
+
+        // we listen for 5 seconds for a command
+        //   before timeing out and going back
+        //  to listening only for builtIn and hotword
+        if(currentState == RecoState::Listening)
         {
-          ++waiting_seconds;
-          if (waiting_seconds == 5)
+          auto now = std::chrono::system_clock::now();
+
+          if(now - hotword_detect_time >= 5s)
           {
-            DOUT("Listening for cmmand timed out...");
-            ::COM(sprGrammar->SetRuleState(L"Commands", nullptr, SPRS_INACTIVE));
-            DOUT("command rule inactive");
-            ::COM(sprGrammar->SetRuleState(L"HotWord", nullptr, SPRS_ACTIVE));
-            DOUT("hotword rule active");
-            ListeningMode = ListeningForHotword;
-            waiting_seconds = 0;
+            upUserCmdGrp->deactivate();
+            upHotwordGrp->activate();
+            lastState = currentState;
+            currentState = RecoState::Active;
           }
         }
-        else
-        {
-          waiting_seconds = 0;
-        }
+        // we timed out so restart loop
         continue;
       }
-      ::COM(sprContext->GetEvents(1ul, &spEvent, nullptr));
-      DOUT("event found");
-      sprResult = reinterpret_cast<ISpRecoResult*>(spEvent.lParam);
-      wchar_t *text;
-      ::COM(sprResult->GetText(SP_GETWHOLEPHRASE, SP_GETWHOLEPHRASE, FALSE, &text, NULL));
-      std::string strText = ws2s(std::wstring(text));
-      DOUT("text: " << strText << std::endl);
-      if (strText == hotword)
+
+      std::wstring recognizedPhrase;
+
+      hr = sprContext->GetEvents(1ul, &spEvent, nullptr);
+      if(SUCCEEDED(hr))
+        sprResult = reinterpret_cast<ISpRecoResult*>(spEvent.lParam);
+      wchar_t* text = nullptr;
+
+      hr = sprResult->GetText(SP_GETWHOLEPHRASE, SP_GETWHOLEPHRASE, FALSE, &text, NULL);
+      if(SUCCEEDED(hr))
       {
-        ::COM(sprGrammar->SetRuleState(L"Commands", nullptr, SPRS_ACTIVE));
-        DOUT("command rule actve");
-        ::COM(sprGrammar->SetRuleState(L"HotWord", nullptr, SPRS_INACTIVE));
-        DOUT("hotword rule inactive");
-        ListeningMode = ListeningForCommand;
-        // TODO play sound or some notification of readiness
-      }
-      else if (strText == "Shutdown Speech Recognition")
-      {
-        exit_wait_cv.notify_all();
-        break;
-      }
-      else
-      {
-        ::COM(sprGrammar->SetRuleState(L"Commands", nullptr, SPRS_INACTIVE));
-        DOUT("command rule inactive");
-        ::COM(sprGrammar->SetRuleState(L"HotWord", nullptr, SPRS_ACTIVE));
-        DOUT("hotword rule active");
-        ListeningMode = ListeningForHotword;
-        Command cmd = mCmd[strText];
-        std::thread cmdthr(&Recog::ExecCommand, this, cmd);
-        cmdthr.detach();
+        recognizedPhrase = std::wstring(text);
+        if(currentState == RecoState::Active)
+          if(recognizedPhrase.size() == hotword.size())
+            if(std::equal(recognizedPhrase.begin(), recognizedPhrase.end(), hotword.begin(), icase_cmp_wchar))
+            {
+              lastState = currentState;
+              upHotwordGrp->deactivate();
+              upUserCmdGrp->activate();
+              currentState = RecoState::Listening;
+            }
       }
     }
     thread_finished = true;
   }
 
-  void refresh_rules()
-  {
-    ::COM(sprGrammar->ResetGrammar(MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US)));
-    SPSTATEHANDLE spsh = { 0 };
-    ::COM(sprGrammar->GetRule(L"HotWord", 0ul, SPRAF_TopLevel | SPRAF_Active, true, &spsh));
-    std::wstring whotword(hotword.begin(), hotword.end());
-    ::COM(sprGrammar->AddWordTransition(spsh, nullptr, whotword.c_str(), nullptr, SPWT_LEXICAL, 1, nullptr));
-    ::COM(sprGrammar->Commit(0ul));
-    ::COM(sprContext->SetInterest(SPFEI(SPEI_RECOGNITION), SPFEI(SPEI_RECOGNITION)));
-    ::COM(sprGrammar->SetRuleState(L"HotWord", nullptr, SPRS_ACTIVE));
-    ::COM(sprGrammar->GetRule(L"Commands", 1ul, SPRAF_TopLevel | SPRAF_Active, true, &spsh));
-    ::COM(sprGrammar->AddWordTransition(spsh, nullptr, L"Shutdown Speech Recognition", nullptr, SPWT_LEXICAL, 1, nullptr));
-    ::COM(sprGrammar->Commit(0ul));
-    ::COM(sprContext->SetInterest(SPFEI(SPEI_RECOGNITION), SPFEI(SPEI_RECOGNITION)));
-    ::COM(sprGrammar->SetRuleState(L"Commands", nullptr, SPRS_INACTIVE));
-    for(auto b=mCmd.begin();b!=mCmd.end();++b)
-    {
-      AddString(b->first, b->second.cmdline());
-    }
-  }
-};
+private: // Variables
 
+  // reference pause
+  int pause_count {};
+
+  // storage for commands
+  std::vector<Command> vCmd {};
+
+  //  
+  CComPtr<ISpRecognizer>  spRecogognizer {nullptr};
+
+  //
+  CComPtr<ISpRecoContext> sprContext {nullptr};
+
+  //
+  std::unique_ptr<CommandGroup> upHotwordGrp {nullptr};
+  std::unique_ptr<CommandGroup> upBuiltInGrp {nullptr};
+  std::unique_ptr<CommandGroup> upUserCmdGrp {nullptr};
+
+  //
+  CComPtr<ISpObjectToken> cpRecognizerToken {nullptr};
+  CComPtr<ISpObjectToken> spAudioInToken {nullptr};
+
+
+
+  // word that activates listening for commands
+  //   prevents unintentional command activations
+  //  which would happen if always listening for
+  //   the user-specified commands
+  //  defaults to "computer"
+  std::wstring hotword {L"computer"};
+
+
+  bool initialized {false};
+  bool thread_continue {false};
+  bool thread_finished {false};
+
+
+  RecoState currentState {RecoState::Unknown};
+  // for resuming from a Paused state
+  RecoState lastState {RecoState::Unknown};
+
+  std::atomic<unsigned> pauseCounter;
+
+  std::mutex exit_wait_mtx {};
+  std::condition_variable exit_wait_cv {};
+
+
+};
+}

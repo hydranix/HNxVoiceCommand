@@ -1,28 +1,35 @@
+// This was the first C++ program I ever wrote
+//   I first wrote it in 2016 and came back to
+//  it in 2023 to fix my mistakes.
+//
 #include "dialog.hpp"
-#include "ipcsm.hpp"
+#include "SingleInstance.h"
+
 #include <QApplication>
-int main(int argc, char *argv[])
+
+using namespace HNx;
+
+int main(int argc, char* argv[])
 {
-  QCoreApplication::setOrganizationName("HNx");
-  QCoreApplication::setApplicationName("Voice Commands");
-  QCoreApplication::setApplicationVersion("0.1");
+  // there can be only one
+  if (!isSingleInstance())
+  {
+    return 1;
+  }
+
+  // application name and version
+  QApplication::setOrganizationName("HNx");
+  QApplication::setApplicationName("Voice Command");
+  QApplication::setApplicationVersion("0.2");
+
+  // We will live in the tray
+  QApplication::setQuitOnLastWindowClosed(false);
 
   QApplication a(argc, argv);
-  {
-    IPCSM * ipcsm = nullptr;
-    QSharedMemory shared_memory("HNxVC");
-    if (shared_memory.attach())
-    {
-      shared_memory.lock();
-      ipcsm = reinterpret_cast<IPCSM*>(shared_memory.data());
-      ipcsm->flag = true;
-      shared_memory.unlock();
-      shared_memory.detach();
-      return 0;
-    }
-  }
+
   Dialog w;
-  w.LoadSettings();
+  //w.LoadSettings();
   w.show();
+  
   return a.exec();
 }

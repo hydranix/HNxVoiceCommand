@@ -1,7 +1,7 @@
 #pragma once
 #ifndef DIALOG2_HPP
 
-#define Q_OBJECT Q_OBJECT
+//#define Q_OBJECT Q_OBJECT
 
 #include <QDialog>
 #include <QVector>

@@ -1,22 +1,32 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio 14
-VisualStudioVersion = 14.0.25123.0
+# Visual Studio Version 17
+VisualStudioVersion = 17.4.33205.214
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "HNxVoiceCommand", "HNxVoiceCommand.vcxproj", "{0C03995C-1F1F-3790-A71B-C45987A428F3}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "HNxVoiceCommand", "HNxVoiceCommand.vcxproj", "{0D127701-CA60-3828-B522-70D2B5EF8B00}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
+		Debug|x86 = Debug|x86
 		Release|x64 = Release|x64
+		Release|x86 = Release|x86
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{0C03995C-1F1F-3790-A71B-C45987A428F3}.Debug|x64.ActiveCfg = Debug|x64
-		{0C03995C-1F1F-3790-A71B-C45987A428F3}.Debug|x64.Build.0 = Debug|x64
-		{0C03995C-1F1F-3790-A71B-C45987A428F3}.Release|x64.ActiveCfg = Release|x64
-		{0C03995C-1F1F-3790-A71B-C45987A428F3}.Release|x64.Build.0 = Release|x64
+		{0D127701-CA60-3828-B522-70D2B5EF8B00}.Debug|x64.ActiveCfg = Debug|x64
+		{0D127701-CA60-3828-B522-70D2B5EF8B00}.Debug|x64.Build.0 = Debug|x64
+		{0D127701-CA60-3828-B522-70D2B5EF8B00}.Debug|x86.ActiveCfg = Debug|x64
+		{0D127701-CA60-3828-B522-70D2B5EF8B00}.Debug|x86.Build.0 = Debug|x64
+		{0D127701-CA60-3828-B522-70D2B5EF8B00}.Release|x64.ActiveCfg = Release|x64
+		{0D127701-CA60-3828-B522-70D2B5EF8B00}.Release|x64.Build.0 = Release|x64
+		{0D127701-CA60-3828-B522-70D2B5EF8B00}.Release|x86.ActiveCfg = Release|x64
+		{0D127701-CA60-3828-B522-70D2B5EF8B00}.Release|x86.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		Qt5Version = 6.5.0_msvc2019_64
+		SolutionGuid = {F724A47C-0957-4E82-A8AD-71A4F42CFA51}
 	EndGlobalSection
 EndGlobal
